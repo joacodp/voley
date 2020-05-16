@@ -125,7 +125,6 @@ def procesar_viajes(equipos_por_nombre):
         primer_partido_visitante = partidos_de_visitante[0]
         destinos = [primer_partido_visitante.local]
         partido_visitante_anterior = primer_partido_visitante
-        if per
 
         for partido in partidos_de_visitante[1:]:
             if partido.es_cercano_a(partido_visitante_anterior):
