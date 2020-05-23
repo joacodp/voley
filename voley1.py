@@ -5,38 +5,34 @@ import datetime
 import itertools
 import pandas as pd
 from docplex.mp.model import Model
-from clases_voley import EquipoDeVolley, Viaje
+from clases_voley import EquipoDeVolley, Viaje, Temporada
 
 
 def procesar_equipos(temporada):
     equipos_por_nombre = {}
-    equipos_a_filtrar = []
-    if temporada == 2017:
-        equipos_a_filtrar = ["ATENEO"]
-    elif temporada == 2018:
-        equipos_a_filtrar = ["ATENEO", "LOMAS"]
-    elif temporada == 2019:
-        equipos_a_filtrar = ["LIBERTAD", "UNTREF", "LOMAS"]
 
     df_equipos = pd.read_excel("equipos.xlsx")
     for nombre, latitud, longitud in df_equipos[["Equipo", "Latitud", "Longitud"]].values:
-        if nombre not in equipos_a_filtrar:
+        if nombre not in temporada.equipos_a_filtrar:
             equipos_por_nombre[nombre] = EquipoDeVolley(nombre, latitud, longitud)
 
     return equipos_por_nombre
 
 
-def nombrador(tupla):
-    if len(tupla) == 3:
-        nombre = "partido_" + str(tupla[0]) + "_" + str(tupla[1]) + "_" + str(tupla[2])
+def nombrador_partido(tupla):
+    local, visitante, fecha_ampliada = tupla
+    return "partido_" + local.nombre + "_" + visitante.nombre + "_" + str(fecha_ampliada)
+
+
+def nombrador_viaje(tupla):
+    viaje, fecha_ampliada = tupla
+    nombre = "viaje_" + str(fecha_ampliada) + "_" + viaje.equipo.nombre
+    for destino in viaje.destinos:
+        nombre = nombre + "_" + destino.nombre
+    if viaje.preferido:
+        nombre = nombre + "_" + "preferido"
     else:
-        nombre = "viaje_" + str(tupla[1]) + "_" + str(tupla[0].equipo)
-        for destino in tupla[0].destinos:
-            nombre = nombre + "_" + str(destino)
-        if tupla[0].preferido:
-            nombre = nombre + "_" + "preferido"
-        else:
-            nombre = nombre + "_" + "nopreferido"
+        nombre = nombre + "_" + "nopreferido"
     return nombre
 
 
@@ -114,25 +110,27 @@ def crear_viajes_logicos(equipos_por_nombre):
     return conjunto_de_viajes
 
 
-def crear_variables(m, equipos, viajes, fechas_ampliada):
-    A = [(i, j, k) for i in equipos for j in equipos if i != j for k in fechas_ampliada]
-    random.shuffle(A)
-    B = [(t, k) for t in viajes for k in fechas_ampliada if k + t.tamaño() <= len(fechas_ampliada)]
-    var_partido = m.binary_var_dict(A, name=nombrador)
-    var_viaje = m.binary_var_dict(B, name=nombrador)
+def crear_variables(m, equipos, viajes, temporada):
+    conjunto_var_partidos = [(i, j, k) for i in equipos for j in equipos if i != j for k in temporada.fechas_ampliada]
+    random.shuffle(conjunto_var_partidos)
+    conjunto_var_viajes = [(t, k) for t in viajes for k in temporada.fechas_ampliada
+                           if k + t.tamaño() <= len(temporada.fechas_ampliada)]
+    var_partido = m.binary_var_dict(conjunto_var_partidos, name=nombrador_partido)
+    var_viaje = m.binary_var_dict(conjunto_var_viajes, name=nombrador_viaje)
 
-    return var_partido, var_viaje, A, B
+    return var_partido, var_viaje, conjunto_var_partidos, conjunto_var_viajes
 
 
 def set_funcion_objetivo(m, var_viaje, conjunto_var_viaje):
     m.minimize(m.sum(t.kilometros() * var_viaje[t, k] for t, k in conjunto_var_viaje))
 
 
-def crear_restricciones(m, var_partido, var_viaje, equipos, viajes, fechas_ampliada,
-                        maximo_sin_jugar, maximo_break_local, primeras_fechas_ampliada):
+def crear_restricciones(m, var_partido, var_viaje, equipos, viajes, temporada):
+    fechas_ampliada = temporada.fechas_ampliada
 
     # Todos los partidos se juegan (de local y visitante)
-    m.add_constraints(m.sum(var_partido[i, j, k] for k in fechas_ampliada) == 1 for i in equipos for j in equipos if i != j)
+    m.add_constraints(m.sum(var_partido[i, j, k] for k in fechas_ampliada) == 1
+                      for i in equipos for j in equipos if i != j)
     #
     # Cada equipo juega a lo sumo un partido por fecha
     m.add_constraints(
@@ -146,10 +144,10 @@ def crear_restricciones(m, var_partido, var_viaje, equipos, viajes, fechas_ampli
                       for i in equipos for j in equipos if i != j for k in fechas_ampliada)
     #
     # Despues de un viaje, el equipo juega al menos un partido de local en las 4 fechas_ampliada subsiguintes
-    m.add_constraints(
-        m.sum(m.sum(var_partido[i, j, k + t.tamaño() + s] for s in range(4)) for j in equipos if i != j) >= var_viaje[t, k]
-        for i in equipos for t in viajes if t.equipo == i for k in fechas_ampliada
-        if (k + t.tamaño() + 3 < len(fechas_ampliada)))
+    m.add_constraints(m.sum(m.sum(var_partido[i, j, k + t.tamaño() + s] for s in range(4))
+                            for j in equipos if i != j) >= var_viaje[t, k]
+                      for i in equipos for t in viajes if t.equipo == i for k in fechas_ampliada
+                      if (k + t.tamaño() + 3 < len(fechas_ampliada)))
     #
     # Cada equipo descansa la fecha anterior o posterior a un viaje
     m.add_constraints(
@@ -160,16 +158,20 @@ def crear_restricciones(m, var_partido, var_viaje, equipos, viajes, fechas_ampli
     #
     # Ningun equipo puede pasar mas de maximo_sin_jugar fechas_ampliada sin jugar
     m.add_constraints(m.sum(m.sum(var_partido[i, j, k + s] + var_partido[j, i, k + s]
-                                  for s in range(maximo_sin_jugar + 1)) for j in equipos if i != j) >= 1
-                      for i in equipos for k in fechas_ampliada if (k + maximo_sin_jugar < len(fechas_ampliada)))
+                                  for s in range(temporada.maximo_fecha_ampliada_sin_jugar + 1))
+                            for j in equipos if i != j) >= 1
+                      for i in equipos for k in fechas_ampliada
+                      if (k + temporada.maximo_fecha_ampliada_sin_jugar < len(fechas_ampliada)))
     #
     # Cada equipo debe tener al menos un partido de visitante en maximo_break_local + 1 fechas_ampliada
     m.add_constraints(
-        m.sum(m.sum(var_partido[j, i, k + s] for s in range(maximo_break_local + 1)) for j in equipos if i != j) >= 1
-        for i in equipos for k in fechas_ampliada if (k + maximo_break_local < len(fechas_ampliada)))
+        m.sum(m.sum(var_partido[j, i, k + s] for s in range(temporada.maximo_break_local + 1))
+              for j in equipos if i != j) >= 1
+        for i in equipos for k in fechas_ampliada if (k + temporada.maximo_break_local < len(fechas_ampliada)))
     #
     # Cada equipo juega al menos un partido en las primeras fechas_ampliada
-    m.add_constraints(m.sum(m.sum(var_partido[i, j, k] + var_partido[j, i, k] for k in range(primeras_fechas_ampliada))
+    m.add_constraints(m.sum(m.sum(var_partido[i, j, k] + var_partido[j, i, k]
+                                  for k in range(temporada.primeras_fechas_ampliada))
                             for j in equipos if i != j) >= 1 for i in equipos)
     #
     # Todos los equipos deben jugar en la ultima fecha_ampliada
@@ -192,7 +194,7 @@ def optimizar(m):
     return sol
 
 
-def exportar_solucion(sol, var_partido, var_viaje, equipos_por_nombre, fechas_ampliada):
+def exportar_solucion(sol, var_partido, var_viaje, equipos_por_nombre, temporada):
     sol_partidos = sol.get_value_dict(var_partido, keep_zeros=False)
     sol_viajes = sol.get_value_dict(var_viaje, keep_zeros=False)
 
@@ -200,7 +202,7 @@ def exportar_solucion(sol, var_partido, var_viaje, equipos_por_nombre, fechas_am
     matriz = []
     for nombre, equipo in equipos_por_nombre.items():
         lista = list([nombre])
-        for fecha in fechas_ampliada:
+        for fecha in temporada.fechas_ampliada:
             local = [nombre for e, nombre in equipos_por_nombre.items() if (e, equipo, fecha) in sol_partidos]
             visitante = [nombre for e, nombre in equipos_por_nombre.items() if (equipo, e, fecha) in sol_partidos]
             if len(local) > 0:
@@ -211,14 +213,15 @@ def exportar_solucion(sol, var_partido, var_viaje, equipos_por_nombre, fechas_am
                 lista.append(None)
         matriz.append(lista)
 
-    df_partidos = pd.DataFrame(matriz, columns=["Equipo"] + fechas_ampliada)
+    df_partidos = pd.DataFrame(matriz, columns=["Equipo"] + temporada.fechas_ampliada)
     #
-    # Solapa Viaje
+    # Solapa Viajes
 
     matriz = [[viaje.equipo, fecha_ampliada, viaje.kilometros()] + viaje.get_destinos()
               for viaje, fecha_ampliada in sol_viajes.keys()]
     max_viaje = max([v.tamaño() for v, k in sol_viajes.keys()])
-    df_viajes = pd.DataFrame(matriz, columns=["Equipo", "Longitud del viaje"]+[str(i) for i in range(1, max_viaje + 1)])
+    df_viajes = pd.DataFrame(matriz, columns=["Equipo", "Fecha ampliada", "Longitud"] +
+                                             [str(i) for i in range(1, max_viaje + 1)])
     #
     # Solapa Distancias
 
@@ -230,7 +233,7 @@ def exportar_solucion(sol, var_partido, var_viaje, equipos_por_nombre, fechas_am
     #
 
     fecha_de_hoy = str(datetime.datetime.today().date())
-    nombre_de_archivo = "output/resultados_voley1_" + fecha_de_hoy + ".xls"
+    nombre_de_archivo = "output/resultados_voley1_" + fecha_de_hoy + ".xlsx"
     writer = pd.ExcelWriter(nombre_de_archivo, engine="openpyxl")
     df_partidos.to_excel(writer, sheet_name="Partidos", index=False)
     df_viajes.to_excel(writer, sheet_name="Viajes", index=False)
@@ -243,26 +246,20 @@ if __name__ == "__main__":
     print("Iniciando cálculos previos...")
     tic = time.time()
 
-    temporada = 2018
+    temporada = Temporada(2018)
     equipos_por_nombre = procesar_equipos(temporada)
     equipos = equipos_por_nombre.values()
-
-    maximo_sin_jugar = 3
-    maximo_break_local = 5
-    primeras_fechas_ampliada = 3
-    fechas_ampliada = [i for i in range(3 * (len(equipos_por_nombre) - 1))]
+    temporada.crear_fechas_ampliada(equipos_por_nombre)
 
     m = Model(name='voley1')
     conjunto_de_viajes = crear_viajes_logicos(equipos_por_nombre)
     var_partido, var_viaje, conjunto_var_partido, conjunto_var_viaje = crear_variables(m, equipos, conjunto_de_viajes,
-                                                                                       fechas_ampliada)
+                                                                                       temporada)
     set_funcion_objetivo(m, var_viaje, conjunto_var_viaje)
-    crear_restricciones(m, var_partido, var_viaje, equipos, conjunto_de_viajes, fechas_ampliada,
-                        maximo_sin_jugar, maximo_break_local, primeras_fechas_ampliada)
+    crear_restricciones(m, var_partido, var_viaje, equipos, conjunto_de_viajes, temporada)
     tac = time.time()
     tiempo_empleado(tac - tic)
 
     solucion = optimizar(m)
 
-    exportar_solucion(solucion, var_partido, var_viaje, equipos_por_nombre, fechas_ampliada)
-
+    exportar_solucion(solucion, var_partido, var_viaje, equipos_por_nombre, temporada)
