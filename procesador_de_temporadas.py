@@ -140,16 +140,15 @@ def procesar_viajes(equipos_por_nombre):
         equipo.viajes.append(viaje)
 
 
-if __name__ == "__main__":
-    distancias = pd.read_excel("distancias.xlsx", index_col=0)
-    #df = pd.read_excel("temporada_2017-2018.xlsx")
-    df = pd.read_excel("temporada_2018-2019.xlsx")
-    #df = pd.read_excel("temporada_2019-2020.xlsx")
+def procesar_temporada(nombre_de_archivo):
+    df = pd.read_excel(nombre_de_archivo)
     equipos_por_nombre, partidos = procesar_partidos(df)
     chequeo(equipos_por_nombre, partidos)
     procesar_viajes(equipos_por_nombre)
 
-    print()
+    return {e.nombre: e.distancia_total() for e in equipos_por_nombre.values()}
+
+    """print()
     [print(e.nombre + ":" + " "*(20 - len(e.nombre)) + str(int(round(e.distancia_total()/1000))) + " kms.")
      for e in equipos_por_nombre.values()]
-    print(f"Distancia total: {int(round(sum([e.distancia_total() for e in equipos_por_nombre.values()])/1000))} kms.")
+    print(f"Distancia total: {int(round(sum([e.distancia_total() for e in equipos_por_nombre.values()])/1000))} kms.")"""

@@ -6,6 +6,7 @@ import itertools
 import pandas as pd
 from docplex.mp.model import Model
 from clases_voley import EquipoDeVolley, Viaje, Temporada
+from procesador_de_temporadas import procesar_temporada
 
 
 def procesar_equipos(temporada):
@@ -67,9 +68,9 @@ def crear_viajes_logicos(equipos_por_nombre):
     sanjuan = ["UPCN", "OBRAS"]
     lejanos = ["MONTEROS", "GIGANTES"]
 
-    e_bsas = [e for nombre, e in equipos_por_nombre.items() if e in bsas]
-    e_rosario = [e for nombre, e in equipos_por_nombre.items() if e in rosario]
-    e_sanjuan = [e for nombre, e in equipos_por_nombre.items() if e in sanjuan]
+    e_bsas = [e for nombre, e in equipos_por_nombre.items() if nombre in bsas]
+    e_rosario = [e for nombre, e in equipos_por_nombre.items() if nombre in rosario]
+    e_sanjuan = [e for nombre, e in equipos_por_nombre.items() if nombre in sanjuan]
 
     conjunto_de_viajes = set()
     for nombre, e in equipos_por_nombre.items():
@@ -79,14 +80,14 @@ def crear_viajes_logicos(equipos_por_nombre):
                 bolivar = equipos_por_nombre["BOLIVAR"]
                 conjunto_de_viajes.update([Viaje(e, [bolivar] + l.get_destinos()) for l in tours(e, e_bsas)])
                 conjunto_de_viajes.update([Viaje(e, l.get_destinos() + [bolivar]) for l in tours(e, e_bsas)])
-        if e not in rosario:
+        if nombre not in rosario:
             conjunto_de_viajes.update(tours(e, e_rosario))
             if "MONTEROS" in equipos_por_nombre and nombre != "MONTEROS":
                 monteros = equipos_por_nombre["MONTEROS"]
                 conjunto_de_viajes.update([Viaje(e, [monteros] + l.get_destinos()) for l in tours(e, e_rosario)])
                 conjunto_de_viajes.update([Viaje(e, l.get_destinos() + [monteros]) for l in tours(e, e_rosario)])
 
-        if e not in sanjuan:
+        if nombre not in sanjuan:
             conjunto_de_viajes.update(tours(e, e_sanjuan))
             if "MONTEROS" in equipos_por_nombre and nombre != "MONTEROS":
                 monteros = equipos_por_nombre["MONTEROS"]
@@ -153,7 +154,7 @@ def crear_restricciones(m, var_partido, var_viaje, equipos, viajes, temporada):
     m.add_constraints(
         m.sum(var_partido[i, j, k + t.tamaño()] + var_partido[j, i, k + t.tamaño()] for j in equipos if i != j)
         + m.sum(var_partido[i, j, k - 1] + var_partido[j, i, k - 1] for j in equipos if i != j) <= 2 - var_viaje[t, k]
-        for i in equipos for t in viajes if t.equipo == i for k in fechas_ampliada
+        for i in equipos for t in viajes if t.equipo == i if t.tamaño() > 1 for k in fechas_ampliada
         if (0 < k <= len(fechas_ampliada) - t.tamaño() - 1))
     #
     # Ningun equipo puede pasar mas de maximo_sin_jugar fechas_ampliada sin jugar
@@ -197,14 +198,15 @@ def optimizar(m):
 def exportar_solucion(sol, var_partido, var_viaje, equipos_por_nombre, temporada):
     sol_partidos = sol.get_value_dict(var_partido, keep_zeros=False)
     sol_viajes = sol.get_value_dict(var_viaje, keep_zeros=False)
+    distancias_reales = procesar_temporada(temporada.nombre_archivo_partidos_reales)
 
     # Solapa Partidos
     matriz = []
     for nombre, equipo in equipos_por_nombre.items():
         lista = list([nombre])
         for fecha in temporada.fechas_ampliada:
-            local = [nombre for e, nombre in equipos_por_nombre.items() if (e, equipo, fecha) in sol_partidos]
-            visitante = [nombre for e, nombre in equipos_por_nombre.items() if (equipo, e, fecha) in sol_partidos]
+            local = [local for local, l in equipos_por_nombre.items() if (l, equipo, fecha) in sol_partidos]
+            visitante = [visitante for visitante, v in equipos_por_nombre.items() if (equipo, v, fecha) in sol_partidos]
             if len(local) > 0:
                 lista.append("@" + local[0])
             elif len(visitante) > 0:
@@ -217,7 +219,7 @@ def exportar_solucion(sol, var_partido, var_viaje, equipos_por_nombre, temporada
     #
     # Solapa Viajes
 
-    matriz = [[viaje.equipo, fecha_ampliada, viaje.kilometros()] + viaje.get_destinos()
+    matriz = [[viaje.equipo.nombre, fecha_ampliada, viaje.kilometros()] + [e.nombre for e in viaje.get_destinos()]
               for viaje, fecha_ampliada in sol_viajes.keys()]
     max_viaje = max([v.tamaño() for v, k in sol_viajes.keys()])
     df_viajes = pd.DataFrame(matriz, columns=["Equipo", "Fecha ampliada", "Longitud"] +
@@ -225,15 +227,15 @@ def exportar_solucion(sol, var_partido, var_viaje, equipos_por_nombre, temporada
     #
     # Solapa Distancias
 
-    matriz = [[nombre, sum([v.kilometros() for v, k in sol_viajes.keys() if v.equipo == e])]
+    matriz = [[nombre, sum([v.kilometros() for v, k in sol_viajes.keys() if v.equipo == e]), distancias_reales[nombre]]
               for nombre, e in equipos_por_nombre.items()]
-    matriz.append(["Total", sum([v.kilometros() for v, k in sol_viajes.keys()])])
-    matriz.append(["Óptimo", sol.get_objective_value()])
-    df_distancias = pd.DataFrame(matriz, columns=["Equipo", "Distanica recorrida"])
+    matriz.append(["Total", sum([v.kilometros() for v, k in sol_viajes.keys()]), sum(distancias_reales.values())])
+    matriz.append(["Óptimo", sol.get_objective_value(), ""])
+    df_distancias = pd.DataFrame(matriz, columns=["Equipo", "Distanica recorrida", "Distancia original"])
     #
 
     fecha_de_hoy = str(datetime.datetime.today().date())
-    nombre_de_archivo = "output/resultados_voley1_" + fecha_de_hoy + ".xlsx"
+    nombre_de_archivo = "output/resultados_" + fecha_de_hoy + "_voley1.xlsx"
     writer = pd.ExcelWriter(nombre_de_archivo, engine="openpyxl")
     df_partidos.to_excel(writer, sheet_name="Partidos", index=False)
     df_viajes.to_excel(writer, sheet_name="Viajes", index=False)
