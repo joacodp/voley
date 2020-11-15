@@ -5,19 +5,8 @@ import datetime
 import itertools
 import pandas as pd
 from docplex.mp.model import Model
-from clases_voley import EquipoDeVolley, Viaje, Temporada
-from procesador_de_temporadas import procesar_temporada
-
-
-def procesar_equipos(temporada):
-    equipos_por_nombre = {}
-
-    df_equipos = pd.read_excel("equipos.xlsx")
-    for nombre, latitud, longitud in df_equipos[["Equipo", "Latitud", "Longitud"]].values:
-        if nombre not in temporada.equipos_a_filtrar:
-            equipos_por_nombre[nombre] = EquipoDeVolley(nombre, latitud, longitud)
-
-    return equipos_por_nombre
+from clases_voley import Viaje, Temporada
+from procesador_de_temporadas import procesar_temporada, procesar_equipos
 
 
 def nombrador_partido(tupla):
@@ -53,26 +42,45 @@ def tiempo_empleado(tiempo):
     print(rt)
 
 
-def tours(equipo, lista_de_equipos_proximos):
+def tours(equipo, lista_de_equipos_proximos, lista2_de_equipos_proximos=None):
     tour = []
-    for l in range(2, len(lista_de_equipos_proximos) + 1):
-        for per in itertools.permutations(lista_de_equipos_proximos, l):
-            tour.append(Viaje(equipo, list(per)))
+    if lista2_de_equipos_proximos is not None:
+        for l in range(1, len(lista_de_equipos_proximos) + 1):
+            for per in itertools.permutations(lista_de_equipos_proximos, l):
+                for m in range(1, len(lista2_de_equipos_proximos) + 1):
+                    for per2 in itertools.permutations(lista2_de_equipos_proximos, m):
+                        tour.append(Viaje(equipo, list(per) + list(per2)))
+                        tour.append(Viaje(equipo, list(per2) + list(per)))
+    else:
+        for l in range(2, len(lista_de_equipos_proximos) + 1):
+            for per in itertools.permutations(lista_de_equipos_proximos, l):
+                tour.append(Viaje(equipo, list(per)))
     return tour
 
 
-def crear_viajes_logicos(equipos_por_nombre):
+def todos_los_viajes(equipos, maximo):
+    conjunto_de_viajes = set()
+    for equipo in equipos:
+        otros_equipos = [e for e in equipos if e != equipo]
+        for m in range(1, maximo + 1):
+            for per in itertools.permutations(otros_equipos, m):
+                conjunto_de_viajes.add(Viaje(equipo, list(per)))
+    return conjunto_de_viajes
 
-    bsas = ["CIUDAD", "RIVER", "UNTREF", "LOMAS"]
+
+def crear_viajes_logicos(equipos_por_nombre, conjunto_de_viajes):
+
+    bsas = ["CIUDAD", "RIVER", "UNTREF", "LOMAS", "BOLIVAR"]
     rosario = ["LIBERTAD", "PSM"]
     sanjuan = ["UPCN", "OBRAS"]
     lejanos = ["MONTEROS", "GIGANTES"]
+    norte = ["MONTEROS", "ATENEO"]
 
     e_bsas = [e for nombre, e in equipos_por_nombre.items() if nombre in bsas]
     e_rosario = [e for nombre, e in equipos_por_nombre.items() if nombre in rosario]
     e_sanjuan = [e for nombre, e in equipos_por_nombre.items() if nombre in sanjuan]
+    e_norte = [e for nombre, e in equipos_por_nombre.items() if nombre in norte]
 
-    conjunto_de_viajes = set()
     for nombre, e in equipos_por_nombre.items():
         if nombre not in bsas:
             conjunto_de_viajes.update(tours(e, e_bsas))
@@ -98,6 +106,29 @@ def crear_viajes_logicos(equipos_por_nombre):
                 conjunto_de_viajes.update([Viaje(e, [gigantes] + l.get_destinos()) for l in tours(e, e_sanjuan)])
                 conjunto_de_viajes.update([Viaje(e, l.get_destinos() + [gigantes]) for l in tours(e, e_sanjuan)])
 
+        if nombre not in norte:
+            conjunto_de_viajes.update(tours(e, e_norte))
+
+        if nombre in bsas:
+            conjunto_de_viajes.update(tours(e, e_rosario, e_norte))
+            conjunto_de_viajes.update(tours(e, e_rosario, e_sanjuan))
+            conjunto_de_viajes.update(tours(e, e_sanjuan, e_norte))
+
+        if nombre in norte:
+            conjunto_de_viajes.update(tours(e, e_rosario, e_bsas))
+            conjunto_de_viajes.update(tours(e, e_rosario, e_sanjuan))
+            conjunto_de_viajes.update(tours(e, e_sanjuan, e_bsas))
+
+        """if nombre in rosario:
+            conjunto_de_viajes.update(tours(e, e_bsas, e_norte))
+            conjunto_de_viajes.update(tours(e, e_bsas, e_sanjuan))
+            conjunto_de_viajes.update(tours(e, e_sanjuan, e_norte))
+
+        if nombre in sanjuan:
+            conjunto_de_viajes.update(tours(e, e_rosario, e_bsas))
+            conjunto_de_viajes.update(tours(e, e_rosario, e_norte))
+            conjunto_de_viajes.update(tours(e, e_norte, e_bsas))"""
+
         if nombre == "MONTEROS" and "GIGANTES" in equipos_por_nombre and "BOLIVAR" in equipos_por_nombre:
             gigantes, bolivar = equipos_por_nombre["GIGANTES"], equipos_por_nombre["BOLIVAR"]
             conjunto_de_viajes.update([Viaje(e, [gigantes, bolivar])])
@@ -107,7 +138,6 @@ def crear_viajes_logicos(equipos_por_nombre):
 
     # Donde 0 <- ciudad, 1 <- gigantes, 2 <- libertad, 3 <- monteros, 4 <- obras,
     # 5 <- bolivar, 6 <- psm, 7 <- river, 8 <- untref, 9 <- upcn
-
     return conjunto_de_viajes
 
 
@@ -130,7 +160,7 @@ def crear_restricciones(m, var_partido, var_viaje, equipos, viajes, temporada):
     fechas_ampliada = temporada.fechas_ampliada
 
     # Todos los partidos se juegan (de local y visitante)
-    m.add_constraints(m.sum(var_partido[i, j, k] for k in fechas_ampliada) == 1
+    m.add_constraints(m.sum(var_partido[i, j, k] for k in fechas_ampliada) == i.cantidad_de_encuentros(j)
                       for i in equipos for j in equipos if i != j)
     #
     # Cada equipo juega a lo sumo un partido por fecha
@@ -181,10 +211,13 @@ def crear_restricciones(m, var_partido, var_viaje, equipos, viajes, temporada):
     #
 
 
-def optimizar(m):
+def optimizar(m, gap, time_limit):
     progress_listener = docplex.mp.progress.TextProgressListener()
     m.add_progress_listener(progress_listener)
-    m.parameters.mip.tolerances.mipgap.set(0)
+    if gap is not None:
+        m.parameters.mip.tolerances.mipgap.set(gap)
+    if time_limit is not None:
+        m.parameters.timelimit = time_limit
 
     tac = time.time()
     print("Iniciando optimización...")
@@ -196,9 +229,11 @@ def optimizar(m):
 
 
 def exportar_solucion(sol, var_partido, var_viaje, equipos_por_nombre, temporada):
+    if sol is None:
+        print("INFACTIBLE")
+        return
     sol_partidos = sol.get_value_dict(var_partido, keep_zeros=False)
     sol_viajes = sol.get_value_dict(var_viaje, keep_zeros=False)
-    distancias_reales = procesar_temporada(temporada.nombre_archivo_partidos_reales)
 
     # Solapa Partidos
     matriz = []
@@ -227,9 +262,10 @@ def exportar_solucion(sol, var_partido, var_viaje, equipos_por_nombre, temporada
     #
     # Solapa Distancias
 
-    matriz = [[nombre, sum([v.kilometros() for v, k in sol_viajes.keys() if v.equipo == e]), distancias_reales[nombre]]
+    matriz = [[nombre, sum([v.kilometros() for v, k in sol_viajes.keys() if v.equipo == e]), e.distancia_total_real()]
               for nombre, e in equipos_por_nombre.items()]
-    matriz.append(["Total", sum([v.kilometros() for v, k in sol_viajes.keys()]), sum(distancias_reales.values())])
+    matriz.append(["Total", sum([v.kilometros() for v, k in sol_viajes.keys()]),
+                   sum([e.distancia_total_real() for e in equipos_por_nombre.values()])])
     matriz.append(["Óptimo", sol.get_objective_value(), ""])
     df_distancias = pd.DataFrame(matriz, columns=["Equipo", "Distanica recorrida", "Distancia original"])
     #
@@ -248,13 +284,15 @@ if __name__ == "__main__":
     print("Iniciando cálculos previos...")
     tic = time.time()
 
-    temporada = Temporada(2018)
+    temporada = Temporada(2019)
     equipos_por_nombre = procesar_equipos(temporada)
+    viajes_reales = procesar_temporada(temporada, equipos_por_nombre)
     equipos = equipos_por_nombre.values()
     temporada.crear_fechas_ampliada(equipos_por_nombre)
 
     m = Model(name='voley1')
-    conjunto_de_viajes = crear_viajes_logicos(equipos_por_nombre)
+    # conjunto_de_viajes = crear_viajes_logicos(equipos_por_nombre, viajes_reales)
+    conjunto_de_viajes = todos_los_viajes(equipos, 2)
     var_partido, var_viaje, conjunto_var_partido, conjunto_var_viaje = crear_variables(m, equipos, conjunto_de_viajes,
                                                                                        temporada)
     set_funcion_objetivo(m, var_viaje, conjunto_var_viaje)
@@ -262,6 +300,6 @@ if __name__ == "__main__":
     tac = time.time()
     tiempo_empleado(tac - tic)
 
-    solucion = optimizar(m)
+    solucion = optimizar(m, gap=None, time_limit=3600)
 
     exportar_solucion(solucion, var_partido, var_viaje, equipos_por_nombre, temporada)

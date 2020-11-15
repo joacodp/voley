@@ -1,112 +1,40 @@
 import pandas as pd
+from clases_voley import Viaje, Partido, EquipoDeVoley, Temporada
 
 
-class Viaje:
-    def __init__(self, equipo, lista_destinos):
-        self.equipo = equipo
-        self.destinos = lista_destinos
-        self.preferido = True
-
-    def __repr__(self):
-        return f"{self.equipo}_{self.destinos}"
-
-    def destinos(self):
-        return self.destinos
-
-    def tamaño(self):
-        return len(self.destinos)
-
-    def ubicacion_del_equipo(self, equipo):
-        return self.destinos.index(equipo)
-
-    def contiene(self, equipo):
-        return equipo in self.destinos
-
-    def set_no_preferido(self):
-        self.preferido = False
-
-    def kilometros(self):
-        siguiente = self.equipo
-        kms = 0
-        for i in self.destinos:
-            anterior = siguiente
-            siguiente = i
-            kms += distancias.loc[anterior.nombre, siguiente.nombre]
-        anterior = siguiente
-        siguiente = self.equipo
-        kms += distancias.loc[anterior.nombre, siguiente.nombre]
-        return kms
-
-
-class Partido:
-    def __init__(self, local, visitante, dia, weekend):
-        self.dia = dia.date()
-        self.local = local
-        self.visitante = visitante
-        self.weekend = weekend
-
-    def __repr__(self):
-        return f"{self.local} VS {self.visitante}_{self.dia}"
-
-    def es_posterior_a(self, otro_partido):
-        return self.dia >= otro_partido.dia
-
-    def es_anterior_a(self, otro_partido):
-        return self.dia < otro_partido.dia
-
-    def es_cercano_a(self, otro_partido):
-        if otro_partido is None:
-            return False
-        return (self.dia - otro_partido.dia).days <= 5
-
-
-class Equipo:
-    def __init__(self, nombre):
-        self.nombre = nombre
-        self.partidos = []
-        self.viajes = []
-        print(f"Equipo {nombre} creado.")
-
-    def __repr__(self):
-        return self.nombre
-
-    def agregar_partido(self, partido):
-        if len(self.partidos) > 0:
-            ultimo_partido = self.partidos[-1]
-            self.partidos.append(partido)
-            if partido.es_anterior_a(ultimo_partido):
-                self.partidos.sort(key=lambda p: p.dia)
-        else:
-            self.partidos.append(partido)
-
-    def agregar_viaje(self, viaje):
-        self.viajes.append(viaje)
-
-    def distancia_total(self):
-        return sum(v.kilometros() for v in self.viajes)
-
-
-def procesar_partidos(df):
+def procesar_equipos(temporada):
     equipos_por_nombre = {}
+
+    df_equipos = pd.read_excel("equipos.xlsx")
+    for nombre, latitud, longitud in df_equipos[["Equipo", "Latitud", "Longitud"]].values:
+        if nombre not in temporada.equipos_a_filtrar:
+            equipos_por_nombre[nombre] = EquipoDeVoley(nombre, latitud, longitud)
+
+    return equipos_por_nombre
+
+
+def procesar_partidos(df, equipos_por_nombre):
     partidos = {}
 
     for nombre_local, nombre_visitante, dia, weekend in df[["Local", "Visitante", "Fecha", "Weekend"]].values:
         if nombre_local not in equipos_por_nombre:
-            equipos_por_nombre[nombre_local] = Equipo(nombre_local)
+            print(f"{nombre_local} no se encontró en el excel de Equipos")
         if nombre_visitante not in equipos_por_nombre:
-            equipos_por_nombre[nombre_visitante] = Equipo(nombre_visitante)
+            print(f"{nombre_local} no se encontró en el excel de Equipos")
 
         local = equipos_por_nombre[nombre_local]
         visitante = equipos_por_nombre[nombre_visitante]
 
         partido = Partido(local, visitante, dia, weekend)
         if (local, visitante) in partidos:
-            print(f"El partido {partido} está repetido.")
-        partidos[(local, visitante)] = partido
+            print(f"El encuentro {partido.local} VS {partido.visitante} está repetido.")
+        else:
+            partidos[(local, visitante)] = []
+        partidos[(local, visitante)].append(partido)
 
-        local.agregar_partido(partido)
-        visitante.agregar_partido(partido)
-    return equipos_por_nombre, partidos
+        local.agregar_partido_real(partido)
+        visitante.agregar_partido_real(partido)
+    return partidos
 
 
 def chequeo(equipos_por_nombre, partidos):
@@ -120,8 +48,9 @@ def chequeo(equipos_por_nombre, partidos):
 
 
 def procesar_viajes(equipos_por_nombre):
+    viajes = set()
     for equipo in equipos_por_nombre.values():
-        partidos_de_visitante = [p for p in equipo.partidos if p.visitante == equipo]
+        partidos_de_visitante = [p for p in equipo.partidos_real if p.visitante == equipo]
         primer_partido_visitante = partidos_de_visitante[0]
         destinos = [primer_partido_visitante.local]
         partido_visitante_anterior = primer_partido_visitante
@@ -131,24 +60,28 @@ def procesar_viajes(equipos_por_nombre):
                 destinos.append(partido.local)
             else:
                 viaje = Viaje(equipo, destinos)
-                equipo.viajes.append(viaje)
+                viajes.add(viaje)
+                equipo.viajes_real.append(viaje)
 
                 destinos = [partido.local]
             partido_visitante_anterior = partido
 
         viaje = Viaje(equipo, destinos)
-        equipo.viajes.append(viaje)
+        viajes.add(viaje)
+        equipo.viajes_real.append(viaje)
+    return viajes
 
 
-def procesar_temporada(nombre_de_archivo):
-    df = pd.read_excel(nombre_de_archivo)
-    equipos_por_nombre, partidos = procesar_partidos(df)
+def procesar_temporada(temporada, equipos_por_nombre=None):
+    if equipos_por_nombre is None:
+        equipos_por_nombre = procesar_equipos(temporada)
+    df = pd.read_excel(temporada.nombre_archivo_partidos_reales)
+    partidos = procesar_partidos(df, equipos_por_nombre)
     chequeo(equipos_por_nombre, partidos)
-    procesar_viajes(equipos_por_nombre)
+    viajes = procesar_viajes(equipos_por_nombre)
 
-    return {e.nombre: e.distancia_total() for e in equipos_por_nombre.values()}
+    return viajes
+    #return {e.nombre: e.distancia_total_real() for e in equipos_por_nombre.values()}
 
-    """print()
-    [print(e.nombre + ":" + " "*(20 - len(e.nombre)) + str(int(round(e.distancia_total()/1000))) + " kms.")
-     for e in equipos_por_nombre.values()]
-    print(f"Distancia total: {int(round(sum([e.distancia_total() for e in equipos_por_nombre.values()])/1000))} kms.")"""
+
+

@@ -37,16 +37,21 @@ class Temporada:
             self.maximo_dias_sin_jugar = 9
             self.nombre_archivo_partidos_reales = "temporada_2018-2019.xlsx"
         elif año == 2019:
+            self.dia_inicial = dt.date(2019, 10, 31)
             self.equipos_a_filtrar = ["LIBERTAD", "UNTREF", "LOMAS"]
             self.nombre_archivo_partidos_reales = "temporada_2019-2020.xlsx"
         elif año == 2017:
+            self.dia_inicial = dt.date(2017, 11, 1)
             self.equipos_a_filtrar = ["ATENEO"]
             self.nombre_archivo_partidos_reales = "temporada_2017-2018.xlsx"
 
         self.dias = [mas(self.dia_inicial, l) for l in range(self.cantidad_de_dias)]
 
     def crear_fechas_ampliada(self, equipos_por_nombre):
-        self.fechas_ampliada = [i for i in range(3 * (len(equipos_por_nombre) - 1))]
+        if self.año_de_inicio == 2019:
+            self.fechas_ampliada = [i for i in range(3 * len(equipos_por_nombre))]
+        else:
+            self.fechas_ampliada = [i for i in range(3 * (len(equipos_por_nombre) - 1))]
 
     def get_dias_televisables(self, equipos):
         return [t for t in self.dias
@@ -55,6 +60,28 @@ class Temporada:
 
     def get_dias_jugables_por_todos(self):
         return [t for t in self.dias if not any([r.contiene(t) for r in self.recesos])]
+
+
+class Partido:
+    def __init__(self, local, visitante, dia, weekend):
+        self.dia = dia.date()
+        self.local = local
+        self.visitante = visitante
+        self.weekend = weekend
+
+    def __repr__(self):
+        return f"{self.local} VS {self.visitante}_{self.dia}"
+
+    def es_posterior_a(self, otro_partido):
+        return self.dia >= otro_partido.dia
+
+    def es_anterior_a(self, otro_partido):
+        return self.dia < otro_partido.dia
+
+    def es_cercano_a(self, otro_partido):
+        if otro_partido is None:
+            return False
+        return (self.dia - otro_partido.dia).days <= 5
 
 
 class Receso:
@@ -88,6 +115,15 @@ class Viaje:
 
     def __repr__(self):
         return f"{self.equipo}_{self.destinos}"
+
+    def __hash__(self):
+        info = self.equipo.nombre
+        for destino in self.destinos:
+            info += destino.nombre
+        return hash(info)
+
+    def __eq__(self, other):
+        return self.equipo == other.equipo and self.destinos == other.destinos
 
     def get_destinos(self):
         return self.destinos
@@ -130,11 +166,13 @@ class Viaje:
         return kms
 
 
-class EquipoDeVolley:
+class EquipoDeVoley:
 
     def __init__(self, nombre, latitud=None, longitud=None):
         self.nombre = nombre
         self.ubicacion = (latitud, longitud)
+        self.partidos_real = []
+        self.viajes_real = []
         self.misma_cancha = set()
         self.preferencias = []
         self.dias_por_fecha = {}
@@ -152,6 +190,21 @@ class EquipoDeVolley:
 
     def __repr__(self):
         return self.nombre
+
+    def agregar_partido_real(self, partido):
+        if len(self.partidos_real) > 0:
+            ultimo_partido = self.partidos_real[-1]
+            self.partidos_real.append(partido)
+            if partido.es_anterior_a(ultimo_partido):
+                self.partidos_real.sort(key=lambda p: p.dia)
+        else:
+            self.partidos_real.append(partido)
+
+    def agregar_viaje_real(self, viaje):
+        self.viajes.append(viaje)
+
+    def distancia_total_real(self):
+        return sum(v.kilometros() for v in self.viajes_real)
 
     def distancia(self, otro_equipo):
         return distance(self.ubicacion, otro_equipo.ubicacion).m
@@ -282,3 +335,6 @@ class EquipoDeVolley:
 
     def get_kilometros(self):
         return sum([v.kilometros for v in self.viajes])
+
+    def cantidad_de_encuentros(self, visitante):
+        return 1# len([p for p in self.partidos_real if p.local == self and p.visitante == visitante])

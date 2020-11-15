@@ -1,8 +1,7 @@
 import time
-import datetime as dt
 import random as r
 import pandas as pd
-from voley1 import procesar_equipos
+from procesador_de_temporadas import procesar_equipos
 from clases_voley import Receso, Temporada, mas
 from docplex.mp.model import Model
 import os
