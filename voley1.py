@@ -1,3 +1,6 @@
+# -*- coding: utf-8 -*-
+
+import sys
 import docplex
 import time
 import random
@@ -7,6 +10,13 @@ import pandas as pd
 from docplex.mp.model import Model
 from clases_voley import Viaje, Temporada
 from procesador_de_temporadas import procesar_temporada, procesar_equipos
+
+
+def esta_y_no_es_el_nombre_iterador(dict_nombres_equipos, nombre_iterador, nombre):
+    if nombre in dict_nombres_equipos.keys() and nombre != nombre_iterador:
+        return dict_nombres_equipos[nombre]
+    else:
+        return None
 
 
 def nombrador_partido(tupla):
@@ -45,6 +55,8 @@ def tiempo_empleado(tiempo):
 def tours(equipo, lista_de_equipos_proximos, lista2_de_equipos_proximos=None):
     tour = []
     if lista2_de_equipos_proximos is not None:
+        if not set(lista_de_equipos_proximos).isdisjoint(lista2_de_equipos_proximos):
+            print("listas de equipos con elementos repetidos")
         for l in range(1, len(lista_de_equipos_proximos) + 1):
             for per in itertools.permutations(lista_de_equipos_proximos, l):
                 for m in range(1, len(lista2_de_equipos_proximos) + 1):
@@ -70,7 +82,7 @@ def todos_los_viajes(equipos, maximo):
 
 def crear_viajes_logicos(equipos_por_nombre, conjunto_de_viajes):
 
-    bsas = ["CIUDAD", "RIVER", "UNTREF", "LOMAS", "BOLIVAR"]
+    bsas = ["CIUDAD", "RIVER", "UNTREF", "LOMAS"]
     rosario = ["LIBERTAD", "PSM"]
     sanjuan = ["UPCN", "OBRAS"]
     lejanos = ["MONTEROS", "GIGANTES"]
@@ -82,29 +94,33 @@ def crear_viajes_logicos(equipos_por_nombre, conjunto_de_viajes):
     e_norte = [e for nombre, e in equipos_por_nombre.items() if nombre in norte]
 
     for nombre, e in equipos_por_nombre.items():
+        bolivar = esta_y_no_es_el_nombre_iterador(equipos_por_nombre, nombre, "BOLIVAR")
+        psm = esta_y_no_es_el_nombre_iterador(equipos_por_nombre, nombre, "PSM")
+        monteros = esta_y_no_es_el_nombre_iterador(equipos_por_nombre, nombre, "MONTEROS")
+        gigantes = esta_y_no_es_el_nombre_iterador(equipos_por_nombre, nombre, "GIGANTES")
+        ateneo = esta_y_no_es_el_nombre_iterador(equipos_por_nombre, nombre, "ATENEO")
         if nombre not in bsas:
             conjunto_de_viajes.update(tours(e, e_bsas))
-            if nombre in lejanos and "BOLIVAR" in equipos_por_nombre:
-                bolivar = equipos_por_nombre["BOLIVAR"]
-                conjunto_de_viajes.update([Viaje(e, [bolivar] + l.get_destinos()) for l in tours(e, e_bsas)])
-                conjunto_de_viajes.update([Viaje(e, l.get_destinos() + [bolivar]) for l in tours(e, e_bsas)])
+            if bolivar is not None and psm is not None:
+                conjunto_de_viajes.update(tours(e, e_bsas, [psm, bolivar]))
+                conjunto_de_viajes.update([Viaje(e, [bolivar] + l.get_destinos() + [psm]) for l in tours(e, e_bsas)])
+                conjunto_de_viajes.update([Viaje(e, [psm] + l.get_destinos() + [bolivar]) for l in tours(e, e_bsas)])
+            elif bolivar is not None:
+                conjunto_de_viajes.update(tours(e, e_bsas, [bolivar]))
+            elif psm is not None:
+                conjunto_de_viajes.update(tours(e, e_bsas, [psm]))
+
         if nombre not in rosario:
             conjunto_de_viajes.update(tours(e, e_rosario))
-            if "MONTEROS" in equipos_por_nombre and nombre != "MONTEROS":
-                monteros = equipos_por_nombre["MONTEROS"]
-                conjunto_de_viajes.update([Viaje(e, [monteros] + l.get_destinos()) for l in tours(e, e_rosario)])
-                conjunto_de_viajes.update([Viaje(e, l.get_destinos() + [monteros]) for l in tours(e, e_rosario)])
+            if monteros is not None:
+                conjunto_de_viajes.update(tours(e, e_rosario, [monteros]))
 
         if nombre not in sanjuan:
             conjunto_de_viajes.update(tours(e, e_sanjuan))
-            if "MONTEROS" in equipos_por_nombre and nombre != "MONTEROS":
-                monteros = equipos_por_nombre["MONTEROS"]
-                conjunto_de_viajes.update([Viaje(e, [monteros] + l.get_destinos()) for l in tours(e, e_sanjuan)])
-                conjunto_de_viajes.update([Viaje(e, l.get_destinos() + [monteros]) for l in tours(e, e_sanjuan)])
-            elif "GIGANTES" in equipos_por_nombre and nombre == "MONTEROS":
-                gigantes = equipos_por_nombre["GIGANTES"]
-                conjunto_de_viajes.update([Viaje(e, [gigantes] + l.get_destinos()) for l in tours(e, e_sanjuan)])
-                conjunto_de_viajes.update([Viaje(e, l.get_destinos() + [gigantes]) for l in tours(e, e_sanjuan)])
+            if monteros is not None:
+                conjunto_de_viajes.update(tours(e, e_rosario, [monteros]))
+            elif gigantes is not None and nombre == "MONTEROS":
+                conjunto_de_viajes.update(tours(e, e_rosario, [gigantes]))
 
         if nombre not in norte:
             conjunto_de_viajes.update(tours(e, e_norte))
@@ -118,6 +134,9 @@ def crear_viajes_logicos(equipos_por_nombre, conjunto_de_viajes):
             conjunto_de_viajes.update(tours(e, e_rosario, e_bsas))
             conjunto_de_viajes.update(tours(e, e_rosario, e_sanjuan))
             conjunto_de_viajes.update(tours(e, e_sanjuan, e_bsas))
+            if gigantes is not None and bolivar is not None and psm is not None:
+                conjunto_de_viajes.add(Viaje(e, [gigantes, bolivar, psm]))
+                conjunto_de_viajes.add(Viaje(e, [psm, bolivar, gigantes]))
 
         """if nombre in rosario:
             conjunto_de_viajes.update(tours(e, e_bsas, e_norte))
@@ -129,10 +148,12 @@ def crear_viajes_logicos(equipos_por_nombre, conjunto_de_viajes):
             conjunto_de_viajes.update(tours(e, e_rosario, e_norte))
             conjunto_de_viajes.update(tours(e, e_norte, e_bsas))"""
 
-        if nombre == "MONTEROS" and "GIGANTES" in equipos_por_nombre and "BOLIVAR" in equipos_por_nombre:
-            gigantes, bolivar = equipos_por_nombre["GIGANTES"], equipos_por_nombre["BOLIVAR"]
-            conjunto_de_viajes.update([Viaje(e, [gigantes, bolivar])])
-            conjunto_de_viajes.update([Viaje(e, [bolivar, gigantes])])
+        if (nombre == "MONTEROS" or nombre in bsas) and gigantes is not None and bolivar is not None:
+            conjunto_de_viajes.update(tours(e, e_rosario, [gigantes, bolivar]))
+            conjunto_de_viajes.update(tours(e, [gigantes, bolivar]))
+
+        if nombre == "GIGANTES" and ateneo is not None:
+            conjunto_de_viajes.update(tours(e, e_rosario, [psm, ateneo]))
 
         conjunto_de_viajes.update([Viaje(e, [j]) for j in equipos_por_nombre.values() if j != e])
 
@@ -267,6 +288,10 @@ def exportar_solucion(sol, var_partido, var_viaje, equipos_por_nombre, temporada
     matriz.append(["Total", sum([v.kilometros() for v, k in sol_viajes.keys()]),
                    sum([e.distancia_total_real() for e in equipos_por_nombre.values()])])
     matriz.append(["Óptimo", sol.get_objective_value(), ""])
+    matriz.append(["Mejora", 100*(1 - sol.get_objective_value()/sum([e.distancia_total_real()
+                                                                     for e in equipos_por_nombre.values()])), ""])
+    matriz.append(["Gap", 100*solucion.solve_details.mip_relative_gap, ""])
+    matriz.append(["Tiempo", solucion.solve_details.time, ""])
     df_distancias = pd.DataFrame(matriz, columns=["Equipo", "Distanica recorrida", "Distancia original"])
     #
 
@@ -280,19 +305,34 @@ def exportar_solucion(sol, var_partido, var_viaje, equipos_por_nombre, temporada
     writer.close()
 
 
+def parsear_input(argumentos, año, max_tiempo, gap, max_viaje):
+    if len(argumentos) > 1:
+        año = int(argumentos[1])
+    if len(argumentos) > 2:
+        max_tiempo = int(argumentos[2])
+    if len(argumentos) > 3:
+        gap = float(argumentos[3])
+    if len(argumentos) > 4:
+        max_viaje = int(argumentos[4])
+    return año, max_tiempo, gap, max_viaje
+
+
 if __name__ == "__main__":
     print("Iniciando cálculos previos...")
     tic = time.time()
 
-    temporada = Temporada(2019)
+    año, max_tiempo, gap, max_viaje = parsear_input(sys.argv, año=2019, max_tiempo=72*3600, gap=None, max_viaje=None)
+    temporada = Temporada(año)
     equipos_por_nombre = procesar_equipos(temporada)
     viajes_reales = procesar_temporada(temporada, equipos_por_nombre)
     equipos = equipos_por_nombre.values()
     temporada.crear_fechas_ampliada(equipos_por_nombre)
 
     m = Model(name='voley1')
-    # conjunto_de_viajes = crear_viajes_logicos(equipos_por_nombre, viajes_reales)
-    conjunto_de_viajes = todos_los_viajes(equipos, 2)
+    if max_viaje is None:
+        conjunto_de_viajes = crear_viajes_logicos(equipos_por_nombre, viajes_reales)
+    else:
+        conjunto_de_viajes = todos_los_viajes(equipos, max_viaje)
     var_partido, var_viaje, conjunto_var_partido, conjunto_var_viaje = crear_variables(m, equipos, conjunto_de_viajes,
                                                                                        temporada)
     set_funcion_objetivo(m, var_viaje, conjunto_var_viaje)
@@ -300,6 +340,6 @@ if __name__ == "__main__":
     tac = time.time()
     tiempo_empleado(tac - tic)
 
-    solucion = optimizar(m, gap=None, time_limit=3600)
+    solucion = optimizar(m, gap=gap, time_limit=max_tiempo)
 
     exportar_solucion(solucion, var_partido, var_viaje, equipos_por_nombre, temporada)
