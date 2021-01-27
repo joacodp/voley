@@ -16,16 +16,18 @@ class Temporada:
         self.equipos_a_filtrar = []
         self.nombre_archivo_partidos_reales = ""
 
-        self.maximo_dias_sin_jugar = 9
+        self.maximo_dias_sin_jugar = 15
         self.cantidad_de_dias = 130
-        self.duracion_minima_del_campeonato = 100
-        self.ventana_primera_fecha = 5
+        self.duracion_minima_del_campeonato = 10
+        self.ventana_primera_fecha = 8
         self.dia_inicial = None
         self.cantidad_de_dias = 130
         self.dias = None
         self.paso_en_viaje = 2
         self.recesos = set()
         self.copas = None
+
+        self.distancias = dict()
 
         self.inicializar(año_de_inicio)
 
@@ -34,7 +36,7 @@ class Temporada:
             self.dia_inicial = dt.date(2018, 11, 1)
             self.equipos_a_filtrar = ["ATENEO", "LOMAS"]
             self.copas = ["Libertadores", "Copa Aclav", "lva social", "Desafío", "Sudamericano"]
-            self.maximo_dias_sin_jugar = 9
+            # self.maximo_dias_sin_jugar = 9
             self.nombre_archivo_partidos_reales = "temporada_2018-2019.xlsx"
         elif año == 2019:
             self.dia_inicial = dt.date(2019, 10, 31)
@@ -44,6 +46,7 @@ class Temporada:
             self.dia_inicial = dt.date(2017, 11, 1)
             self.equipos_a_filtrar = ["ATENEO"]
             self.nombre_archivo_partidos_reales = "temporada_2017-2018.xlsx"
+            self.duracion_minima_del_campeonato = 20
 
         self.dias = [mas(self.dia_inicial, l) for l in range(self.cantidad_de_dias)]
 
@@ -187,6 +190,7 @@ class EquipoDeVoley:
         self.viaje_por_fecha = {}
         self.dias_jugables = None
         self.juega_en_la_ultima_fecha = False
+        self.distancias = dict()
 
     def __repr__(self):
         return self.nombre
@@ -207,7 +211,9 @@ class EquipoDeVoley:
         return sum(v.kilometros() for v in self.viajes_real)
 
     def distancia(self, otro_equipo):
-        return distance(self.ubicacion, otro_equipo.ubicacion).m
+        if otro_equipo not in self.distancias:
+            self.distancias[otro_equipo] = distance(self.ubicacion, otro_equipo.ubicacion).m
+        return self.distancias[otro_equipo]
 
     def esta_de_viaje_en_fecha_y_en_siguiente(self, fecha):
         if fecha in self.viaje_por_fecha and fecha + 1 in self.viaje_por_fecha:
