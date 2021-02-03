@@ -227,23 +227,23 @@ def crear_restricciones(m, var_partido, var_viaje, equipos, viajes, temporada):
         m.sum(var_partido[i, j, k] + var_partido[j, i, k] for j in equipos if i != j) <= 1
         for i in equipos for k in fechas_ampliada)
     #
-    # Los partidos jugados salen del conjunto de posibles viajes
-    m.add_constraints(m.sum(var_viaje[t, k - t.ubicacion_del_equipo(i)] for t in viajes if t.equipo == j if
-                            (t.contiene(i) and t.ubicacion_del_equipo(i) <= k)
-                            if (k + t.tamaño() <= len(fechas_ampliada))) == var_partido[i, j, k]
+    # Los partidos jugados salen del conjunto de posibles viajes var_viaje[t, k - t.ubicacion_del_equipo(i)]
+    m.add_constraints(m.sum(var for (v, f), var in var_viaje.items() if v.equipo == j if
+                            (v.contiene(i) and v.ubicacion_del_equipo(i) <= k and f == k - v.ubicacion_del_equipo(i))
+                            if (k + v.tamaño() <= len(fechas_ampliada))) == var_partido[i, j, k]
                       for i in equipos for j in equipos if i != j for k in fechas_ampliada)
     #
     # Despues de un viaje, el equipo juega al menos un partido de local en las 4 fechas_ampliada subsiguintes
     m.add_constraints(m.sum(m.sum(var_partido[i, j, k + t.tamaño() + s] for s in range(4))
-                            for j in equipos if i != j) >= var_viaje[t, k]
-                      for i in equipos for t in viajes if t.equipo == i for k in fechas_ampliada
+                            for j in equipos if i != j) >= var
+                      for i in equipos for (t, k), var in var_viaje.items() if t.equipo == i
                       if (k + t.tamaño() + 3 < len(fechas_ampliada)))
     #
     # Cada equipo descansa la fecha anterior o posterior a un viaje
     m.add_constraints(
         m.sum(var_partido[i, j, k + t.tamaño()] + var_partido[j, i, k + t.tamaño()] for j in equipos if i != j)
-        + m.sum(var_partido[i, j, k - 1] + var_partido[j, i, k - 1] for j in equipos if i != j) <= 2 - var_viaje[t, k]
-        for i in equipos for t in viajes if t.equipo == i if t.tamaño() > 1 for k in fechas_ampliada
+        + m.sum(var_partido[i, j, k - 1] + var_partido[j, i, k - 1] for j in equipos if i != j) <= 2 - var
+        for i in equipos for (t, k), var in var_viaje.items() if t.equipo == i if t.tamaño() > 1
         if (0 < k <= len(fechas_ampliada) - t.tamaño() - 1))
     #
     # Ningun equipo puede pasar mas de maximo_sin_jugar fechas_ampliada sin jugar
@@ -309,8 +309,8 @@ def agregar_punto_inicial(m, equipos_por_nombre, viajes_var_dict, partidos_var_d
 
 
 def optimizar(m, gap, time_limit):
-    for start in m.iter_mip_starts():
-        start[0].is_feasible_solution(silent=False)
+    # for start in m.iter_mip_starts():
+        # start[0].is_feasible_solution(silent=False)
     m.set_log_output("log.txt")
 
     # tic = time.time()
@@ -412,7 +412,7 @@ if __name__ == "__main__":
     print("Iniciando cálculos previos...")
     tic = time.time()
 
-    año, max_tiempo, gap, max_viaje = parsear_input(sys.argv, año=2018, max_tiempo=6000, gap=None, max_viaje=2)
+    año, max_tiempo, gap, max_viaje = parsear_input(sys.argv, año=2018, max_tiempo=6000, gap=None, max_viaje=3)
     temporada = Temporada(año)
     equipos_por_nombre = procesar_equipos(temporada)
     viajes_reales = procesar_temporada(temporada, equipos_por_nombre)
@@ -428,9 +428,9 @@ if __name__ == "__main__":
     var_partido, var_viaje, conjunto_var_partido, conjunto_var_viaje = crear_variables(m, equipos, conjunto_de_viajes,
                                                                                        temporada)
     print(3)
-    '''var_partido, var_viaje, conjunto_de_viajes = agregar_punto_inicial(m, equipos_por_nombre, var_viaje, var_partido,
+    var_partido, var_viaje, conjunto_de_viajes = agregar_punto_inicial(m, equipos_por_nombre, var_viaje, var_partido,
                                                                        conjunto_de_viajes,
-                                                                       "resultados_2020-12-10_voley1.xlsx")'''
+                                                                       "resultados_2020-12-10_voley1.xlsx")
     print(4)
     set_funcion_objetivo(m, var_viaje)
     print(5)
