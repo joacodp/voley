@@ -37,10 +37,10 @@ def nombrador_ultimo_dia(dia):
     return "ultimo_dia_" + str(dia)
 
 
-def procesar_datos(temporada, archivo):
+def procesar_datos(temporada, directorio, archivo):
     equipos_por_nombre = procesar_equipos(temporada)
-    df_copas_y_recesos = pd.read_excel("Copas y recesos.xlsx")
-    df_partidos, df_viajes = pd.read_excel("output/" + archivo, sheet_name=["Partidos", "Viajes"]).values()
+    df_copas_y_recesos = pd.read_excel(f"Copas y recesos_{temporada.año_de_inicio}-{temporada.año_de_inicio + 1}.xlsx")
+    df_partidos, df_viajes = pd.read_excel(directorio + archivo, sheet_name=["Partidos", "Viajes"]).values()
     df_partidos = df_partidos.set_index("Equipo")
     df_viajes = df_viajes.set_index("Equipo")
 
@@ -54,7 +54,7 @@ def procesar_datos(temporada, archivo):
         else:
             equipos = equipos_por_nombre.values()
         dias_de_descanso = 0
-        if nombre_receso in temporada.copas:
+        if temporada.copas is not None and nombre_receso in temporada.copas:
             dias_de_descanso = 1
         receso = Receso(nombre_receso, dia_inicio.date(), dia_fin.date(), equipos, dias_de_descanso)
         temporada.recesos.add(receso)
@@ -317,9 +317,9 @@ def crear_restricciones_dos_partidos_pre_pos_viaje(m2, partido, equipos, fechas,
     # A recordar: los torneos tienen descanso antes y después, las copas no pueden estar en medio de un viaje
 
 
-def optimizar(m2):
+def optimizar(m2, directorio):
     print("Iniciando optimización...")
-    m2.export_as_lp("modelo.lp")
+    m2.export_as_lp(directorio + "modelo.lp")
     respuesta = m2.solve()
     print(m2.solve_details)
 
@@ -328,7 +328,7 @@ def optimizar(m2):
     return respuesta
 
 
-def exportar(sol, archivo, var_partido, var_b, var_c, var_primer_dia, var_ultimo_dia, equipos, temporada):
+def exportar(sol, archivo, var_partido, var_b, var_c, var_primer_dia, var_ultimo_dia, equipos, temporada, directorio):
     if sol is None:
         return
     dias = temporada.dias
@@ -365,31 +365,34 @@ def exportar(sol, archivo, var_partido, var_b, var_c, var_primer_dia, var_ultimo
 
     def color(x):
         return df_color
-    df_dias.style.apply(color, axis=None).to_excel("output/" + archivo.replace("1.", "2."))
+    df_dias.style.apply(color, axis=None).to_excel(directorio + archivo.replace("1.", "2."))
 
 
 if __name__ == "__main__":
-    archivos = os.listdir("output/")
-    # Resultados de voley1 que no tienen su correspondiente resultado de voley2
-    archivos_a_correr = [a for a in archivos if "1." in a and a.replace("1.", "2.") not in archivos]
+    for año in [2017, 2018, 2019]:
+        for carpeta in ["Todos los viajes (3)/", "Todos los viajes (4)/", "Viajes lógicos/"]:
+            directorio = str(año) + "/" + carpeta
+            archivos = os.listdir(directorio)
+            # Resultados de voley1 que no tienen su correspondiente resultado de voley2
+            archivos_a_correr = [a for a in archivos if "1." in a and a.replace("1.", "2.") not in archivos]
 
-    for archivo in archivos_a_correr:
+            for archivo in archivos_a_correr:
 
-        print("Iniciando cálculos previos...")
-        tic = time.clock()
+                print("Iniciando cálculos previos...")
+                tic = time.clock()
 
-        temporada = Temporada(2018)
-        equipos_por_nombre, fechas = procesar_datos(temporada, archivo)
-        equipos = equipos_por_nombre.values()
+                temporada = Temporada(año)
+                equipos_por_nombre, fechas = procesar_datos(temporada, directorio, archivo)
+                equipos = equipos_por_nombre.values()
 
-        m2 = Model(name='volley')
-        var_partido, var_b, var_c, primer_dia, ultimo_dia = crear_variables(m2, equipos, fechas, temporada)
-        set_funcion_objetivo(m2, var_partido, var_b, var_c, equipos, fechas, temporada.paso_en_viaje)
-        crear_restricciones(m2, var_partido, var_b, var_c, primer_dia, ultimo_dia, equipos, fechas, temporada)
+                m2 = Model(name='volley')
+                var_partido, var_b, var_c, primer_dia, ultimo_dia = crear_variables(m2, equipos, fechas, temporada)
+                set_funcion_objetivo(m2, var_partido, var_b, var_c, equipos, fechas, temporada.paso_en_viaje)
+                crear_restricciones(m2, var_partido, var_b, var_c, primer_dia, ultimo_dia, equipos, fechas, temporada)
 
-        tac = time.clock()
-        print("Completado en ", tac - tic, " segundos.")
+                tac = time.clock()
+                print("Completado en ", tac - tic, " segundos.")
 
-        sol = optimizar(m2)
+                sol = optimizar(m2, directorio)
 
-        exportar(sol, archivo, var_partido, var_b, var_c, primer_dia, ultimo_dia, equipos, temporada)
+                exportar(sol, archivo, var_partido, var_b, var_c, primer_dia, ultimo_dia, equipos, temporada, directorio)
