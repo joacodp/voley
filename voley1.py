@@ -12,7 +12,7 @@ from clases_voley import Viaje, Temporada
 from procesador_de_temporadas import procesar_temporada, procesar_equipos
 
 
-def esta_y_no_es_el_nombre_iterador(dict_nombres_equipos, nombre_iterador, nombre):
+def get_equipo_si_no_es_nombre_iterador(dict_nombres_equipos, nombre_iterador, nombre):
     if nombre in dict_nombres_equipos.keys() and nombre != nombre_iterador:
         return dict_nombres_equipos[nombre]
     else:
@@ -95,9 +95,9 @@ def crear_viajes_logicos(equipos_por_nombre, conjunto_de_viajes):
 
     if temporada.año_de_inicio == 2017:
         for nombre, e in equipos_por_nombre.items():
-            bolivar = esta_y_no_es_el_nombre_iterador(equipos_por_nombre, nombre, "BOLIVAR")
-            monteros = esta_y_no_es_el_nombre_iterador(equipos_por_nombre, nombre, "MONTEROS")
-            gigantes = esta_y_no_es_el_nombre_iterador(equipos_por_nombre, nombre, "GIGANTES")
+            bolivar = get_equipo_si_no_es_nombre_iterador(equipos_por_nombre, nombre, "BOLIVAR")
+            monteros = get_equipo_si_no_es_nombre_iterador(equipos_por_nombre, nombre, "MONTEROS")
+            gigantes = get_equipo_si_no_es_nombre_iterador(equipos_por_nombre, nombre, "GIGANTES")
             if nombre not in bsas:
                 conjunto_de_viajes.update(tours(e, e_bsas))
                 if bolivar is not None:
@@ -129,11 +129,11 @@ def crear_viajes_logicos(equipos_por_nombre, conjunto_de_viajes):
         return conjunto_de_viajes
     else:
         for nombre, e in equipos_por_nombre.items():
-            bolivar = esta_y_no_es_el_nombre_iterador(equipos_por_nombre, nombre, "BOLIVAR")
-            psm = esta_y_no_es_el_nombre_iterador(equipos_por_nombre, nombre, "PSM")
-            monteros = esta_y_no_es_el_nombre_iterador(equipos_por_nombre, nombre, "MONTEROS")
-            gigantes = esta_y_no_es_el_nombre_iterador(equipos_por_nombre, nombre, "GIGANTES")
-            ateneo = esta_y_no_es_el_nombre_iterador(equipos_por_nombre, nombre, "ATENEO")
+            bolivar = get_equipo_si_no_es_nombre_iterador(equipos_por_nombre, nombre, "BOLIVAR")
+            psm = get_equipo_si_no_es_nombre_iterador(equipos_por_nombre, nombre, "PSM")
+            monteros = get_equipo_si_no_es_nombre_iterador(equipos_por_nombre, nombre, "MONTEROS")
+            gigantes = get_equipo_si_no_es_nombre_iterador(equipos_por_nombre, nombre, "GIGANTES")
+            ateneo = get_equipo_si_no_es_nombre_iterador(equipos_por_nombre, nombre, "ATENEO")
             if nombre not in bsas:
                 conjunto_de_viajes.update(tours(e, e_bsas))
                 if bolivar is not None and psm is not None:
@@ -275,9 +275,9 @@ def agregar_punto_inicial(m, equipos_por_nombre, viajes_var_dict, partidos_var_d
 
     df_viajes = pd.read_excel(nombre_archivo, sheet_name="Viajes")
     viajes_elegidos = set()
-    for viajante, fecha_ampliada, primero, segundo, tercero, cuarto, quinto in \
-            df_viajes[["Equipo", "Fecha ampliada", "1", "2", "3", "4", "5"]].values:
-        visitas = [equipos_por_nombre[e] for e in [primero, segundo, tercero, cuarto, quinto] if not pd.isna(e)]
+    for viajante, fecha_ampliada, primero, segundo, tercero, cuarto in \
+            df_viajes[["Equipo", "Fecha ampliada", "1", "2", "3", "4"]].values:
+        visitas = [equipos_por_nombre[e] for e in [primero, segundo, tercero, cuarto] if not pd.isna(e)]
         viaje = Viaje(equipos_por_nombre[viajante], visitas)
         conjunto_de_viajes.add(viaje)
         if (viaje, fecha_ampliada) not in viajes_var_dict:
@@ -313,11 +313,11 @@ def optimizar(m, gap, time_limit):
         # start[0].is_feasible_solution(silent=False)
     m.set_log_output("log.txt")
 
-    # tic = time.time()
-    # print("Exportando lp...")
-    # m.export_as_lp("voley1.lp")
-    # tac = time.time()
-    # tiempo_empleado(tac - tic)
+    tic = time.time()
+    print("Exportando lp...")
+    m.export_as_lp("voley1.lp")
+    tac = time.time()
+    tiempo_empleado(tac - tic)
 
     # ahorra memoria cuando puede
     m.parameters.emphasis.memory = 1
@@ -412,7 +412,7 @@ if __name__ == "__main__":
     print("Iniciando cálculos previos...")
     tic = time.time()
 
-    año, max_tiempo, gap, max_viaje = parsear_input(sys.argv, año=2018, max_tiempo=6000, gap=None, max_viaje=3)
+    año, max_tiempo, gap, max_viaje = parsear_input(sys.argv, año=2018, max_tiempo=6000, gap=None, max_viaje=4)
     temporada = Temporada(año)
     equipos_por_nombre = procesar_equipos(temporada)
     viajes_reales = procesar_temporada(temporada, equipos_por_nombre)
@@ -424,16 +424,12 @@ if __name__ == "__main__":
         conjunto_de_viajes = crear_viajes_logicos(equipos_por_nombre, viajes_reales)
     else:
         conjunto_de_viajes = todos_los_viajes(equipos, max_viaje)
-    print(2)
     var_partido, var_viaje, conjunto_var_partido, conjunto_var_viaje = crear_variables(m, equipos, conjunto_de_viajes,
                                                                                        temporada)
-    print(3)
-    var_partido, var_viaje, conjunto_de_viajes = agregar_punto_inicial(m, equipos_por_nombre, var_viaje, var_partido,
-                                                                       conjunto_de_viajes,
-                                                                       "resultados_2020-12-10_voley1.xlsx")
-    print(4)
+    #var_partido, var_viaje, conjunto_de_viajes = agregar_punto_inicial(m, equipos_por_nombre, var_viaje, var_partido,
+                                                                       #conjunto_de_viajes,
+                                                                       #"resultados_2020-11-21_voley1.xlsx")
     set_funcion_objetivo(m, var_viaje)
-    print(5)
     crear_restricciones(m, var_partido, var_viaje, equipos, conjunto_de_viajes, temporada)
     tac = time.time()
     tiempo_empleado(tac - tic)
